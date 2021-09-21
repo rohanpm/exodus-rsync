@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path"
+	"reflect"
 	"strings"
 
 	"github.com/alecthomas/kong"
@@ -105,6 +106,24 @@ func (c *Config) DestPath() string {
 	return ""
 }
 
+type myStringMapper struct{}
+
+// A custom string decoder for kong. We use this because the default decoder
+// has "magic" behavior: it explicitly rejects arguments starting with "-"
+// apparently guessing that the caller probably meant for that argument to be a flag
+// rather than a value. But we know that we have actual values starting with "-",
+// such as in an exclude rule set by --filter.
+func (myStringMapper) Decode(ctx *kong.DecodeContext, target reflect.Value) error {
+	token := ctx.Scan.Pop()
+	if token.Type == kong.EOLToken {
+		return fmt.Errorf("flag %s: missing value", ctx.Value.Name)
+	}
+
+	value := token.Value.(string)
+	target.SetString(value)
+	return nil
+}
+
 // Parse will parse provided command-line arguments and either return
 // a valid Config object, or call the exit function with a non-zero
 // exit code.
@@ -122,6 +141,7 @@ func Parse(args []string, version string, exit func(int)) Config {
 	out := Config{}
 	kong.Parse(&out,
 		kong.Exit(exit),
+		kong.KindMapper(reflect.String, myStringMapper{}),
 		kong.Description(
 			fmt.Sprintf(
 				"exodus-rsync %s, an exodus-aware rsync replacement.\n\nSee also: %s",
